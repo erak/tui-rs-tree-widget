@@ -1,8 +1,11 @@
-use tui_tree_widget::{TreeItem, TreeState};
+use std::cell::RefCell;
+use std::rc::Rc;
+
+use tui_tree_widget::{SharedTreeItem, TreeItem, TreeState};
 
 pub struct StatefulTree<'a> {
     pub state: TreeState,
-    pub items: Vec<TreeItem<'a>>,
+    pub items: Vec<SharedTreeItem<'a>>,
 }
 
 impl<'a> StatefulTree<'a> {
@@ -17,7 +20,10 @@ impl<'a> StatefulTree<'a> {
     pub fn with_items(items: Vec<TreeItem<'a>>) -> Self {
         Self {
             state: TreeState::default(),
-            items,
+            items: items
+                .into_iter()
+                .map(|item| Rc::new(RefCell::new(item)))
+                .collect::<Vec<_>>(),
         }
     }
 

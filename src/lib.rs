@@ -1,21 +1,31 @@
 #![forbid(unsafe_code)]
 
+use std::cell::RefCell;
+use std::rc::Rc;
+
 use std::collections::HashSet;
+use std::str::FromStr;
+
+use textwrap;
 
 use tui::buffer::Buffer;
-use tui::layout::{Corner, Rect};
+use tui::layout::{Alignment, Corner, Rect};
 use tui::style::Style;
-use tui::text::Text;
+use tui::text::{Span, Spans, StyledGrapheme, Text};
 use tui::widgets::{Block, StatefulWidget, Widget};
 use unicode_width::UnicodeWidthStr;
 
 mod flatten;
 mod identifier;
+mod reflow;
 
 pub use crate::flatten::{flatten, Flattened};
 pub use crate::identifier::{
     get_without_leaf as get_identifier_without_leaf, TreeIdentifier, TreeIdentifierVec,
 };
+use crate::reflow::{LineComposer, WordWrapper};
+
+pub type SharedTreeItem<'a> = Rc<RefCell<TreeItem<'a>>>;
 
 /// Keeps the state of what is currently selected and what was opened in a [`Tree`]
 ///
@@ -104,47 +114,47 @@ impl TreeState {
     }
 
     /// Select the last node.
-    pub fn select_last(&mut self, items: &[TreeItem]) {
+    pub fn select_last(&mut self, items: &[SharedTreeItem]) {
         let visible = flatten(&self.get_all_opened(), items);
         let new_identifier = visible
             .last()
-            .map(|o| o.identifier.clone())
+            .map(|o| o.identifier().clone())
             .unwrap_or_default();
         self.select(new_identifier);
     }
 
     /// Handles the up arrow key.
     /// Moves up in the current depth or to its parent.
-    pub fn key_up(&mut self, items: &[TreeItem]) {
+    pub fn key_up(&mut self, items: &[SharedTreeItem]) {
         let visible = flatten(&self.get_all_opened(), items);
         let current_identifier = self.selected();
         let current_index = visible
             .iter()
-            .position(|o| o.identifier == current_identifier);
+            .position(|o| *o.identifier() == current_identifier);
         let new_index = current_index.map_or(0, |current_index| {
             current_index.saturating_sub(1).min(visible.len() - 1)
         });
         let new_identifier = visible
             .get(new_index)
-            .map(|o| o.identifier.clone())
+            .map(|o| o.identifier().clone())
             .unwrap_or_default();
         self.select(new_identifier);
     }
 
     /// Handles the down arrow key.
     /// Moves down in the current depth or into a child node.
-    pub fn key_down(&mut self, items: &[TreeItem]) {
+    pub fn key_down(&mut self, items: &[SharedTreeItem]) {
         let visible = flatten(&self.get_all_opened(), items);
         let current_identifier = self.selected();
         let current_index = visible
             .iter()
-            .position(|o| o.identifier == current_identifier);
+            .position(|o| *o.identifier() == current_identifier);
         let new_index = current_index.map_or(0, |current_index| {
             current_index.saturating_add(1).min(visible.len() - 1)
         });
         let new_identifier = visible
             .get(new_index)
-            .map(|o| o.identifier.clone())
+            .map(|o| o.identifier().clone())
             .unwrap_or_default();
         self.select(new_identifier);
     }
@@ -166,6 +176,17 @@ impl TreeState {
     }
 }
 
+pub enum Wrap {
+    Width(usize),
+    None,
+}
+
+// #[derive(Clone, Debug)]
+// pub enum Wrap {
+//     Width(usize),
+//     None,
+// }
+
 /// One item inside a [`Tree`]
 ///
 /// Can zero or more `children`.
@@ -180,8 +201,9 @@ impl TreeState {
 #[derive(Debug, Clone)]
 pub struct TreeItem<'a> {
     text: Text<'a>,
+    // wrapped_text: Option<Text<'a>>,
     style: Style,
-    children: Vec<TreeItem<'a>>,
+    children: Vec<SharedTreeItem<'a>>,
 }
 
 impl<'a> TreeItem<'a> {
@@ -206,28 +228,78 @@ impl<'a> TreeItem<'a> {
         Self {
             text: text.into(),
             style: Style::default(),
-            children: children.into(),
+            children: children
+                .into()
+                .into_iter()
+                .map(|item| Rc::new(RefCell::new(item)))
+                .collect::<Vec<_>>(),
         }
     }
 
     #[must_use]
-    pub fn children(&self) -> &[TreeItem] {
+    pub fn children(&self) -> &[SharedTreeItem<'a>] {
         &self.children
     }
 
     #[must_use]
-    pub fn child(&self, index: usize) -> Option<&Self> {
-        self.children.get(index)
+    pub fn child(&self, index: usize) -> Option<SharedTreeItem<'a>> {
+        self.children.get(index).cloned()
     }
 
-    #[must_use]
-    pub fn child_mut(&mut self, index: usize) -> Option<&mut Self> {
-        self.children.get_mut(index)
+    fn wrap(&mut self, width: usize) {
+        // self.text = self.text.clone();
+        // println!("wrapping");
+        // let text = self.text.clone();
+        // let styled = text.lines.iter().map(|line| {
+        //     (
+        //         line.0
+        //             .iter()
+        //             .flat_map(|span| span.styled_graphemes(self.style)),
+        //         Alignment::Left,
+        //     )
+        // });
+        // let mut line_composer: Box<dyn LineComposer> =
+        //     Box::new(WordWrapper::new(styled, width as u16, true));
+        // let mut lines = vec![];
+        // for line in self.text.clone() {
+        //     let mut spans = vec![];
+        //     for span in line.0 {
+        //         spans.push(span);
+        //     }
+        //     let spans = Spans::from(spans);
+        //     lines.push(spans);
+        // }
+        // let mut lines = vec![];
+        // for line in self.lines() {
+        //     lines.p
+        // }
+        // self.text = lines.into();
+        // self
     }
 
     #[must_use]
     pub fn height(&self) -> usize {
-        self.text.height()
+        self.text.lines.len()
+    }
+
+    // pub fn text(&self) -> Text<'a> {
+    //     self.text.clone()
+    // }
+
+    pub fn lines(&mut self, wrap: Wrap) -> &[StyledGrapheme<'a>] {
+        let lines = self.text.lines.iter().map(|line| {
+            line.0
+                .iter()
+                .flat_map(|span| span.styled_graphemes(self.style))
+        });
+        &lines.collect();
+        // if let Wrap::Width(width) = wrap {
+        //     &lines.collect();
+        // } else {
+        //     &lines
+        // }
+
+        // vec![Spans::from(vec![Span::raw("dsdsd")])]
     }
 
     #[must_use]
@@ -236,7 +308,7 @@ impl<'a> TreeItem<'a> {
         self
     }
 
-    pub fn add_child(&mut self, child: TreeItem<'a>) {
+    pub fn add_child(&mut self, child: SharedTreeItem<'a>) {
         self.children.push(child);
     }
 }
@@ -270,9 +342,11 @@ impl<'a> TreeItem<'a> {
 /// ```
 #[derive(Debug, Clone)]
 pub struct Tree<'a> {
-    items: Vec<TreeItem<'a>>,
+    items: Vec<SharedTreeItem<'a>>,
 
     block: Option<Block<'a>>,
+    /// ..... if item content should be wrapped.
+    wrap: bool,
     start_corner: Corner,
     /// Style used as a base style for the widget
     style: Style,
@@ -294,11 +368,12 @@ impl<'a> Tree<'a> {
     #[must_use]
     pub fn new<T>(items: T) -> Self
     where
-        T: Into<Vec<TreeItem<'a>>>,
+        T: Into<Vec<SharedTreeItem<'a>>>,
     {
         Self {
             items: items.into(),
             block: None,
+            wrap: false,
             start_corner: Corner::TopLeft,
             style: Style::default(),
             highlight_style: Style::default(),
@@ -313,6 +388,12 @@ impl<'a> Tree<'a> {
     #[must_use]
     pub fn block(mut self, block: Block<'a>) -> Self {
         self.block = Some(block);
+        self
+    }
+
+    #[must_use]
+    pub const fn wrap(mut self, wrap: bool) -> Self {
+        self.wrap = wrap;
         self
     }
 
@@ -377,6 +458,20 @@ impl<'a> StatefulWidget for Tree<'a> {
             return;
         }
 
+        // TODO: Optimize to wrap only vivible items.
+        // let items = if self.wrap {
+        //     self.items
+        //         .iter()
+        //         .map(|item| {
+        //             let max_indent = 6;
+        //             item.clone()
+        //                 .wrap(area.width.saturating_sub(max_indent) as usize)
+        //         })
+        //         .collect::<Vec<_>>()
+        // } else {
+        //     self.items
+        // };
+
         let visible = flatten(&state.get_all_opened(), &self.items);
         if visible.is_empty() {
             return;
@@ -388,27 +483,35 @@ impl<'a> StatefulWidget for Tree<'a> {
         } else {
             visible
                 .iter()
-                .position(|o| o.identifier == state.selected)
+                .position(|o| *o.identifier() == state.selected)
                 .unwrap_or(0)
         };
+
+        if self.wrap {
+            for flattened in &visible {
+                let indent = flattened.depth() * 2;
+                let width = area.width as usize;
+                flattened.item().borrow_mut().wrap(width.saturating_sub(indent));
+            }
+        }
 
         let mut start = state.offset.min(selected_index);
         let mut end = start;
         let mut height = 0;
-        for item in visible.iter().skip(start) {
-            if height + item.item.height() > available_height {
+        for flattened in visible.iter().skip(start) {
+            if height + flattened.item().borrow().height() > available_height {
                 break;
             }
 
-            height += item.item.height();
+            height += flattened.item().borrow().height();
             end += 1;
         }
 
         while selected_index >= end {
-            height = height.saturating_add(visible[end].item.height());
+            height = height.saturating_add(visible[end].item().borrow().height());
             end += 1;
             while height > available_height {
-                height = height.saturating_sub(visible[start].item.height());
+                height = height.saturating_sub(visible[start].item().borrow().height());
                 start += 1;
             }
         }
@@ -419,17 +522,18 @@ impl<'a> StatefulWidget for Tree<'a> {
 
         let mut current_height = 0;
         let has_selection = !state.selected.is_empty();
+
         #[allow(clippy::cast_possible_truncation)]
-        for item in visible.iter().skip(state.offset).take(end - start) {
+        for flattened in visible.into_iter().skip(state.offset).take(end - start) {
             #[allow(clippy::single_match_else)] // Keep same as List impl
             let (x, y) = match self.start_corner {
                 Corner::BottomLeft => {
-                    current_height += item.item.height() as u16;
+                    current_height += flattened.item().borrow().height() as u16;
                     (area.left(), area.bottom() - current_height)
                 }
                 _ => {
                     let pos = (area.left(), area.top() + current_height);
-                    current_height += item.item.height() as u16;
+                    current_height += flattened.item().borrow().height() as u16;
                     pos
                 }
             };
@@ -437,13 +541,13 @@ impl<'a> StatefulWidget for Tree<'a> {
                 x,
                 y,
                 width: area.width,
-                height: item.item.height() as u16,
+                height: flattened.item().borrow().height() as u16,
             };
 
-            let item_style = self.style.patch(item.item.style);
+            let item_style = self.style.patch(flattened.item().borrow().style);
             buf.set_style(area, item_style);
 
-            let is_selected = state.selected == item.identifier;
+            let is_selected = state.selected == *flattened.identifier();
             let after_highlight_symbol_x = if has_selection {
                 let symbol = if is_selected {
                     self.highlight_symbol
@@ -457,7 +561,7 @@ impl<'a> StatefulWidget for Tree<'a> {
             };
 
             let after_depth_x = {
-                let indent_width = item.depth() * 2;
+                let indent_width = flattened.depth() * 2;
                 let (after_indent_x, _) = buf.set_stringn(
                     after_highlight_symbol_x,
                     y,
@@ -465,9 +569,9 @@ impl<'a> StatefulWidget for Tree<'a> {
                     indent_width,
                     item_style,
                 );
-                let symbol = if item.item.children.is_empty() {
+                let symbol = if flattened.item().borrow().children().is_empty() {
                     self.node_no_children_symbol
-                } else if state.opened.contains(&item.identifier) {
+                } else if state.opened.contains(flattened.identifier()) {
                     self.node_open_symbol
                 } else {
                     self.node_closed_symbol
@@ -479,7 +583,13 @@ impl<'a> StatefulWidget for Tree<'a> {
             };
 
             let max_element_width = area.width.saturating_sub(after_depth_x - x);
-            for (j, line) in item.item.text.lines.iter().enumerate() {
+            for (j, line) in flattened
+                .item()
+                .borrow_mut()
+                .lines()
+                .iter()
+                .enumerate()
+            {
                 buf.set_spans(after_depth_x, y + j as u16, line, max_element_width);
             }
             if is_selected {

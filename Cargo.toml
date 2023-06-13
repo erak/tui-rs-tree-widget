@@ -13,8 +13,10 @@ include = ["src/**/*", "README.md"]
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+textwrap = "0.16.0"
 tui = { version = "0.19", default-features = false }
 unicode-width = "0.1"
+unicode-segmentation = { version = "1.10.1" }
 
 [dev-dependencies]
 crossterm = "0.25"
