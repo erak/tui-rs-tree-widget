@@ -11,11 +11,14 @@ use unicode_width::UnicodeWidthStr;
 
 mod flatten;
 mod identifier;
+mod reflow;
+mod wrap;
 
 pub use crate::flatten::{flatten, Flattened};
 pub use crate::identifier::{
     get_without_leaf as get_identifier_without_leaf, TreeIdentifier, TreeIdentifierVec,
 };
+pub use crate::wrap::wrap;
 
 /// Keeps the state of what is currently selected and what was opened in a [`Tree`]
 ///
@@ -273,6 +276,7 @@ pub struct Tree<'a> {
     items: Vec<TreeItem<'a>>,
 
     block: Option<Block<'a>>,
+    wrap: bool,
     start_corner: Corner,
     /// Style used as a base style for the widget
     style: Style,
@@ -299,6 +303,7 @@ impl<'a> Tree<'a> {
         Self {
             items: items.into(),
             block: None,
+            wrap: false,
             start_corner: Corner::TopLeft,
             style: Style::default(),
             highlight_style: Style::default(),
@@ -313,6 +318,11 @@ impl<'a> Tree<'a> {
     #[must_use]
     pub fn block(mut self, block: Block<'a>) -> Self {
         self.block = Some(block);
+        self
+    }
+
+    pub fn wrap(mut self, wrap: bool) -> Self {
+        self.wrap = wrap;
         self
     }
 
@@ -377,7 +387,13 @@ impl<'a> StatefulWidget for Tree<'a> {
             return;
         }
 
-        let visible = flatten(&state.get_all_opened(), &self.items);
+        let flattened = flatten(&state.get_all_opened(), &self.items);
+        let visible = if self.wrap {
+            wrap(&flattened, area.width)
+        } else {
+            flattened
+        };
+
         if visible.is_empty() {
             return;
         }

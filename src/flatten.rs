@@ -3,7 +3,7 @@ use crate::TreeItem;
 
 pub struct Flattened<'a> {
     pub identifier: Vec<usize>,
-    pub item: &'a TreeItem<'a>,
+    pub item: TreeItem<'a>,
 }
 
 impl<'a> Flattened<'a> {
@@ -32,7 +32,7 @@ fn internal<'a>(
         child_identifier.push(index);
 
         result.push(Flattened {
-            item,
+            item: item.clone(),
             identifier: child_identifier.clone(),
         });
 
