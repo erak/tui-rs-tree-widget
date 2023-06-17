@@ -17,6 +17,20 @@ pub use crate::identifier::{
     get_without_leaf as get_identifier_without_leaf, TreeIdentifier, TreeIdentifierVec,
 };
 
+pub trait TreeItem<'a> {
+    fn height(&self) -> usize;
+
+    fn style(&self) -> Style;
+
+    fn has_children(&self) -> bool;
+
+    fn text(&self) -> &Text<'a>;
+}
+
+pub trait HasChildren<T> {
+    fn children(&self) -> &Vec<T>;
+}
+
 /// Keeps the state of what is currently selected and what was opened in a [`Tree`]
 ///
 /// # Example
@@ -104,7 +118,7 @@ impl TreeState {
     }
 
     /// Select the last node.
-    pub fn select_last(&mut self, items: &[TreeItem]) {
+    pub fn select_last<T: HasChildren<T>>(&mut self, items: &[T]) {
         let visible = flatten(&self.get_all_opened(), items);
         let new_identifier = visible
             .last()
@@ -115,7 +129,7 @@ impl TreeState {
 
     /// Handles the up arrow key.
     /// Moves up in the current depth or to its parent.
-    pub fn key_up(&mut self, items: &[TreeItem]) {
+    pub fn key_up<T: HasChildren<T>>(&mut self, items: &[T]) {
         let visible = flatten(&self.get_all_opened(), items);
         let current_identifier = self.selected();
         let current_index = visible
@@ -133,7 +147,7 @@ impl TreeState {
 
     /// Handles the down arrow key.
     /// Moves down in the current depth or into a child node.
-    pub fn key_down(&mut self, items: &[TreeItem]) {
+    pub fn key_down<T: HasChildren<T>>(&mut self, items: &[T]) {
         let visible = flatten(&self.get_all_opened(), items);
         let current_identifier = self.selected();
         let current_index = visible
@@ -178,13 +192,13 @@ impl TreeState {
 /// let b = TreeItem::new("root", vec![a]);
 /// ```
 #[derive(Debug, Clone)]
-pub struct TreeItem<'a> {
+pub struct DefaultTreeItem<'a> {
     text: Text<'a>,
     style: Style,
-    children: Vec<TreeItem<'a>>,
+    children: Vec<DefaultTreeItem<'a>>,
 }
 
-impl<'a> TreeItem<'a> {
+impl<'a> DefaultTreeItem<'a> {
     #[must_use]
     pub fn new_leaf<T>(text: T) -> Self
     where
@@ -201,7 +215,7 @@ impl<'a> TreeItem<'a> {
     pub fn new<T, Children>(text: T, children: Children) -> Self
     where
         T: Into<Text<'a>>,
-        Children: Into<Vec<TreeItem<'a>>>,
+        Children: Into<Vec<DefaultTreeItem<'a>>>,
     {
         Self {
             text: text.into(),
@@ -211,7 +225,7 @@ impl<'a> TreeItem<'a> {
     }
 
     #[must_use]
-    pub fn children(&self) -> &[TreeItem] {
+    pub fn children(&self) -> &Vec<DefaultTreeItem<'a>> {
         &self.children
     }
 
@@ -226,18 +240,37 @@ impl<'a> TreeItem<'a> {
     }
 
     #[must_use]
-    pub fn height(&self) -> usize {
-        self.text.height()
-    }
-
-    #[must_use]
     pub const fn style(mut self, style: Style) -> Self {
         self.style = style;
         self
     }
 
-    pub fn add_child(&mut self, child: TreeItem<'a>) {
+    pub fn add_child(&mut self, child: DefaultTreeItem<'a>) {
         self.children.push(child);
+    }
+}
+
+impl<'a> TreeItem<'a> for DefaultTreeItem<'a> {
+    fn height(&self) -> usize {
+        self.text.height()
+    }
+
+    fn style(&self) -> Style {
+        self.style
+    }
+
+    fn has_children(&self) -> bool {
+        !self.children.is_empty()
+    }
+
+    fn text(&self) -> &Text<'a> {
+        &self.text
+    }
+}
+
+impl<'a> HasChildren<DefaultTreeItem<'a>> for DefaultTreeItem<'a> {
+    fn children(&self) -> &Vec<DefaultTreeItem<'a>> {
+        &self.children
     }
 }
 
@@ -268,9 +301,9 @@ impl<'a> TreeItem<'a> {
 /// #     Ok(())
 /// # }
 /// ```
-#[derive(Debug, Clone)]
-pub struct Tree<'a> {
-    items: Vec<TreeItem<'a>>,
+// #[derive(Clone)]
+pub struct Tree<'a, T> {
+    items: Vec<T>,
 
     block: Option<Block<'a>>,
     start_corner: Corner,
@@ -290,14 +323,11 @@ pub struct Tree<'a> {
     node_no_children_symbol: &'a str,
 }
 
-impl<'a> Tree<'a> {
+impl<'a, T> Tree<'a, T> {
     #[must_use]
-    pub fn new<T>(items: T) -> Self
-    where
-        T: Into<Vec<TreeItem<'a>>>,
-    {
+    pub fn new(items: Vec<T>) -> Self {
         Self {
-            items: items.into(),
+            items,
             block: None,
             start_corner: Corner::TopLeft,
             style: Style::default(),
@@ -359,7 +389,7 @@ impl<'a> Tree<'a> {
     }
 }
 
-impl<'a> StatefulWidget for Tree<'a> {
+impl<'a, T: TreeItem<'a> + HasChildren<T>> StatefulWidget for Tree<'a, T> {
     type State = TreeState;
 
     #[allow(clippy::too_many_lines)]
@@ -378,6 +408,8 @@ impl<'a> StatefulWidget for Tree<'a> {
         }
 
         let visible = flatten(&state.get_all_opened(), &self.items);
+        // let visible = compose(&visible, area.width);
+
         if visible.is_empty() {
             return;
         }
@@ -396,19 +428,19 @@ impl<'a> StatefulWidget for Tree<'a> {
         let mut end = start;
         let mut height = 0;
         for item in visible.iter().skip(start) {
-            if height + item.item.height() > available_height {
+            if height + item.item().height() > available_height {
                 break;
             }
 
-            height += item.item.height();
+            height += item.item().height();
             end += 1;
         }
 
         while selected_index >= end {
-            height = height.saturating_add(visible[end].item.height());
+            height = height.saturating_add(visible[end].item().height());
             end += 1;
             while height > available_height {
-                height = height.saturating_sub(visible[start].item.height());
+                height = height.saturating_sub(visible[start].item().height());
                 start += 1;
             }
         }
@@ -424,12 +456,12 @@ impl<'a> StatefulWidget for Tree<'a> {
             #[allow(clippy::single_match_else)] // Keep same as List impl
             let (x, y) = match self.start_corner {
                 Corner::BottomLeft => {
-                    current_height += item.item.height() as u16;
+                    current_height += item.item().height() as u16;
                     (area.left(), area.bottom() - current_height)
                 }
                 _ => {
                     let pos = (area.left(), area.top() + current_height);
-                    current_height += item.item.height() as u16;
+                    current_height += item.item().height() as u16;
                     pos
                 }
             };
@@ -437,10 +469,10 @@ impl<'a> StatefulWidget for Tree<'a> {
                 x,
                 y,
                 width: area.width,
-                height: item.item.height() as u16,
+                height: item.item().height() as u16,
             };
 
-            let item_style = self.style.patch(item.item.style);
+            let item_style = self.style.patch(item.item().style());
             buf.set_style(area, item_style);
 
             let is_selected = state.selected == item.identifier;
@@ -465,7 +497,7 @@ impl<'a> StatefulWidget for Tree<'a> {
                     indent_width,
                     item_style,
                 );
-                let symbol = if item.item.children.is_empty() {
+                let symbol = if !item.item().has_children() {
                     self.node_no_children_symbol
                 } else if state.opened.contains(&item.identifier) {
                     self.node_open_symbol
@@ -479,9 +511,10 @@ impl<'a> StatefulWidget for Tree<'a> {
             };
 
             let max_element_width = area.width.saturating_sub(after_depth_x - x);
-            for (j, line) in item.item.text.lines.iter().enumerate() {
+            for (j, line) in item.item().text().lines.iter().enumerate() {
                 buf.set_spans(after_depth_x, y + j as u16, line, max_element_width);
             }
+
             if is_selected {
                 buf.set_style(area, self.highlight_style);
             }
@@ -489,7 +522,7 @@ impl<'a> StatefulWidget for Tree<'a> {
     }
 }
 
-impl<'a> Widget for Tree<'a> {
+impl<'a, T: TreeItem<'a> + HasChildren<T>> Widget for Tree<'a, T> {
     fn render(self, area: Rect, buf: &mut Buffer) {
         let mut state = TreeState::default();
         StatefulWidget::render(self, area, buf, &mut state);

@@ -14,7 +14,7 @@ use tui::{
     Terminal,
 };
 
-use tui_tree_widget::{Tree, TreeItem};
+use tui_tree_widget::{Tree, DefaultTreeItem};
 
 struct App<'a> {
     tree: StatefulTree<'a>,
@@ -24,16 +24,16 @@ impl<'a> App<'a> {
     fn new() -> Self {
         Self {
             tree: StatefulTree::with_items(vec![
-                TreeItem::new_leaf("a"),
-                TreeItem::new(
+                DefaultTreeItem::new_leaf("a"),
+                DefaultTreeItem::new(
                     "b",
                     vec![
-                        TreeItem::new_leaf("c"),
-                        TreeItem::new("d", vec![TreeItem::new_leaf("e"), TreeItem::new_leaf("f")]),
-                        TreeItem::new_leaf("g"),
+                        DefaultTreeItem::new_leaf("c"),
+                        DefaultTreeItem::new("d", vec![DefaultTreeItem::new_leaf("e"), DefaultTreeItem::new_leaf("f")]),
+                        DefaultTreeItem::new_leaf("g"),
                     ],
                 ),
-                TreeItem::new_leaf("h"),
+                DefaultTreeItem::new_leaf("h"),
             ]),
         }
     }

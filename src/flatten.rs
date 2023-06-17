@@ -1,30 +1,34 @@
 use crate::identifier::{TreeIdentifier, TreeIdentifierVec};
-use crate::TreeItem;
+use crate::{HasChildren};
 
-pub struct Flattened<'a> {
+pub struct Flattened<'a, T> {
     pub identifier: Vec<usize>,
-    pub item: &'a TreeItem<'a>,
+    pub item: &'a T,
 }
 
-impl<'a> Flattened<'a> {
+impl<'a, T> Flattened<'a, T> {
     #[must_use]
     pub fn depth(&self) -> usize {
         self.identifier.len() - 1
+    }
+
+    pub fn item(&self) -> &T {
+        self.item
     }
 }
 
 /// Get a flat list of all visible [`TreeItem`s](TreeItem)
 #[must_use]
-pub fn flatten<'a>(opened: &[TreeIdentifierVec], items: &'a [TreeItem<'a>]) -> Vec<Flattened<'a>> {
+pub fn flatten<'a, T: HasChildren<T>>(opened: &[TreeIdentifierVec], items: &'a [T]) -> Vec<Flattened<'a, T>> {
     internal(opened, items, &[])
 }
 
 #[must_use]
-fn internal<'a>(
+fn internal<'a, T: HasChildren<T>>(
     opened: &[TreeIdentifierVec],
-    items: &'a [TreeItem<'a>],
+    items: &'a [T],
     current: TreeIdentifier,
-) -> Vec<Flattened<'a>> {
+) -> Vec<Flattened<'a, T>> {
     let mut result = Vec::new();
 
     for (index, item) in items.iter().enumerate() {
@@ -37,7 +41,7 @@ fn internal<'a>(
         });
 
         if opened.contains(&child_identifier) {
-            let mut child_result = internal(opened, &item.children, &child_identifier);
+            let mut child_result = internal(opened, item.children(), &child_identifier);
             result.append(&mut child_result);
         }
     }
@@ -58,64 +62,74 @@ fn get_naive_string_from_text(text: &tui::text::Text<'_>) -> String {
 }
 
 #[cfg(test)]
-fn get_example_tree_items() -> Vec<TreeItem<'static>> {
+fn get_example_tree_items() -> Vec<crate::DefaultTreeItem<'static>> {
+    use crate::DefaultTreeItem;
+
     vec![
-        TreeItem::new_leaf("a"),
-        TreeItem::new(
+        DefaultTreeItem::new_leaf("a"),
+        DefaultTreeItem::new(
             "b",
             vec![
-                TreeItem::new_leaf("c"),
-                TreeItem::new("d", vec![TreeItem::new_leaf("e"), TreeItem::new_leaf("f")]),
-                TreeItem::new_leaf("g"),
+                DefaultTreeItem::new_leaf("c"),
+                DefaultTreeItem::new("d", vec![DefaultTreeItem::new_leaf("e"), DefaultTreeItem::new_leaf("f")]),
+                DefaultTreeItem::new_leaf("g"),
             ],
         ),
-        TreeItem::new_leaf("h"),
+        DefaultTreeItem::new_leaf("h"),
     ]
 }
 
 #[test]
 fn get_opened_nothing_opened_is_top_level() {
+    use crate::TreeItem;
+
     let items = get_example_tree_items();
     let result = flatten(&[], &items);
     let result_text = result
         .iter()
-        .map(|o| get_naive_string_from_text(&o.item.text))
+        .map(|o| get_naive_string_from_text(o.item.text()))
         .collect::<Vec<_>>();
     assert_eq!(result_text, ["a", "b", "h"]);
 }
 
 #[test]
 fn get_opened_wrong_opened_is_only_top_level() {
+    use crate::TreeItem;
+
     let items = get_example_tree_items();
     let opened = [vec![0], vec![1, 1]];
     let result = flatten(&opened, &items);
     let result_text = result
         .iter()
-        .map(|o| get_naive_string_from_text(&o.item.text))
+        .map(|o| get_naive_string_from_text(o.item.text()))
         .collect::<Vec<_>>();
     assert_eq!(result_text, ["a", "b", "h"]);
 }
 
 #[test]
 fn get_opened_one_is_opened() {
+    use crate::TreeItem;
+
     let items = get_example_tree_items();
     let opened = [vec![1]];
     let result = flatten(&opened, &items);
     let result_text = result
         .iter()
-        .map(|o| get_naive_string_from_text(&o.item.text))
+        .map(|o| get_naive_string_from_text(o.item.text()))
         .collect::<Vec<_>>();
     assert_eq!(result_text, ["a", "b", "c", "d", "g", "h"]);
 }
 
 #[test]
 fn get_opened_all_opened() {
+    use crate::TreeItem;
+
     let items = get_example_tree_items();
     let opened = [vec![1], vec![1, 1]];
     let result = flatten(&opened, &items);
     let result_text = result
         .iter()
-        .map(|o| get_naive_string_from_text(&o.item.text))
+        .map(|o| get_naive_string_from_text(o.item.text()))
         .collect::<Vec<_>>();
     assert_eq!(result_text, ["a", "b", "c", "d", "e", "f", "g", "h"]);
 }

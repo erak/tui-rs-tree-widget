@@ -1,8 +1,8 @@
-use tui_tree_widget::{TreeItem, TreeState};
+use tui_tree_widget::{TreeState, DefaultTreeItem};
 
 pub struct StatefulTree<'a> {
     pub state: TreeState,
-    pub items: Vec<TreeItem<'a>>,
+    pub items: Vec<DefaultTreeItem<'a>>,
 }
 
 impl<'a> StatefulTree<'a> {
@@ -14,7 +14,7 @@ impl<'a> StatefulTree<'a> {
         }
     }
 
-    pub fn with_items(items: Vec<TreeItem<'a>>) -> Self {
+    pub fn with_items(items: Vec<DefaultTreeItem<'a>>) -> Self {
         Self {
             state: TreeState::default(),
             items,
