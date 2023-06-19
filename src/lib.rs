@@ -5,13 +5,14 @@ use std::collections::HashSet;
 use tui::buffer::Buffer;
 use tui::layout::{Corner, Rect};
 use tui::style::Style;
-use tui::text::Text;
+use tui::text::{Text, StyledGrapheme, Span, Spans};
 use tui::widgets::{Block, StatefulWidget, Widget};
 use unicode_width::UnicodeWidthStr;
 
 mod flatten;
 mod identifier;
-pub mod wrap;
+pub mod reflow;
+mod wrap;
 
 pub use crate::flatten::flatten;
 pub use crate::identifier::{
@@ -20,15 +21,16 @@ pub use crate::identifier::{
 pub use crate::wrap::wrap;
 
 pub trait TreeItem<'a> {
-    fn height(&self) -> usize;
+    // fn height(&self) -> usize;
 
     fn style(&self) -> Style;
 
     fn has_children(&self) -> bool;
 
-    fn text(&self) -> &Text<'a>;
+    // fn text(&self) -> &Text<'a>;
+    // fn graphemes(&'a self, area: Rect) -> Vec<Vec<StyledGrapheme<'a>>>;
 
-    fn wrap(self, area: Rect) -> Self;
+    fn wrap(&'a mut self, area: Rect);
 }
 
 pub trait HasChildren<T> {
@@ -36,12 +38,13 @@ pub trait HasChildren<T> {
 }
 
 #[derive(Clone)]
-pub struct Visible<T: Clone> {
+pub struct Visible<'a, T: Clone> {
     pub identifier: Vec<usize>,
-    pub item: T,
+    pub item: &'a T,
+    // pub graphemes: Vec<Vec<StyledGrapheme<'a>>>,
 }
 
-impl<T: Clone> Visible<T> {
+impl<'a, T: Clone> Visible<'a, T> {
     #[must_use]
     pub fn depth(&self) -> usize {
         self.identifier.len() - 1
@@ -49,6 +52,11 @@ impl<T: Clone> Visible<T> {
 
     pub fn item(&self) -> &T {
         &self.item
+    }
+
+    pub fn height(&self) -> usize {
+        // self.graphemes.len()
+        3
     }
 }
 
@@ -215,6 +223,7 @@ impl TreeState {
 #[derive(Debug, Clone)]
 pub struct DefaultTreeItem<'a> {
     text: Text<'a>,
+    // graphemes: Vec<StyledGrapheme<'a>>,
     style: Style,
     children: Vec<DefaultTreeItem<'a>>,
 }
@@ -272,9 +281,9 @@ impl<'a> DefaultTreeItem<'a> {
 }
 
 impl<'a> TreeItem<'a> for DefaultTreeItem<'a> {
-    fn height(&self) -> usize {
-        self.text.height()
-    }
+    // fn height(&self) -> usize {
+    //     self.text.height()
+    // }
 
     fn style(&self) -> Style {
         self.style
@@ -284,15 +293,34 @@ impl<'a> TreeItem<'a> for DefaultTreeItem<'a> {
         !self.children.is_empty()
     }
 
-    fn text(&self) -> &Text<'a> {
-        &self.text
-    }
+    // fn text(&self) -> &Text<'a> {
+    //     &self.text
+    // }
 
-    fn wrap(mut self, _area: Rect) -> Self {
-        self.text = self.text.clone();
-        self
-    }
+    // fn graphemes(&'a self, _area: Rect) -> Vec<Vec<StyledGrapheme<'a>>> {
+    //     // self.text.lines.iter().map(|line| );
+    //     // vec![]
+    //     // self.text.lines.iter().map(|line| )
+    //     let mut graphemes = vec![];
+    //     for line in &self.text.lines {
+    //         // let mut line_gs = vec![];
+    //         for span in line.0.clone() {
+    //             graphemes.push(span.styled_graphemes(self.style).collect::<Vec<_>>());
+    //         }
+    //         // graphemes.push(line_gs)
+    //     }
+    //     graphemes
+    // }
+
+    // fn wrap(&'a mut self, _area: Rect) {}
+    fn wrap(&'a mut self, _area: Rect) {}
 }
+
+// impl<'a> From<DefaultTreeItem<'a>> for Vec<Vec<StyledGrapheme<'a>>> {
+//     fn from(value: DefaultTreeItem<'a>) -> Self {
+//         vec![]
+//     }
+// }
 
 impl<'a> HasChildren<DefaultTreeItem<'a>> for DefaultTreeItem<'a> {
     fn children(&self) -> &Vec<DefaultTreeItem<'a>> {
@@ -426,7 +454,7 @@ impl<'a, T> Tree<'a, T> {
 
 impl<'a, T> StatefulWidget for Tree<'a, T>
 where
-    T: TreeItem<'a> + HasChildren<T> + Clone,
+    T: TreeItem<'a> + HasChildren<T> + Clone + 'a,
 {
     type State = TreeState;
 
@@ -469,19 +497,19 @@ where
         let mut end = start;
         let mut height = 0;
         for item in visible.iter().skip(start) {
-            if height + item.item().height() > available_height {
+            if height + item.height() > available_height {
                 break;
             }
 
-            height += item.item().height();
+            height += item.height();
             end += 1;
         }
 
         while selected_index >= end {
-            height = height.saturating_add(visible[end].item().height());
+            height = height.saturating_add(visible[end].height());
             end += 1;
             while height > available_height {
-                height = height.saturating_sub(visible[start].item().height());
+                height = height.saturating_sub(visible[start].height());
                 start += 1;
             }
         }
@@ -497,12 +525,12 @@ where
             #[allow(clippy::single_match_else)] // Keep same as List impl
             let (x, y) = match self.start_corner {
                 Corner::BottomLeft => {
-                    current_height += item.item().height() as u16;
+                    current_height += item.height() as u16;
                     (area.left(), area.bottom() - current_height)
                 }
                 _ => {
                     let pos = (area.left(), area.top() + current_height);
-                    current_height += item.item().height() as u16;
+                    current_height += item.height() as u16;
                     pos
                 }
             };
@@ -510,7 +538,7 @@ where
                 x,
                 y,
                 width: area.width,
-                height: item.item().height() as u16,
+                height: item.height() as u16,
             };
 
             let item_style = self.style.patch(item.item().style());
@@ -552,8 +580,9 @@ where
             };
 
             let max_element_width = area.width.saturating_sub(after_depth_x - x);
-            for (j, line) in item.item().text().lines.iter().enumerate() {
-                buf.set_spans(after_depth_x, y + j as u16, line, max_element_width);
+            for (j, line) in item.graphemes().iter().enumerate() {
+                let spans = line.iter().map(|StyledGrapheme { symbol, style }| Span::styled(*symbol, *style)).collect::<Vec<_>>();
+                buf.set_spans(after_depth_x, y + j as u16, &Spans::from(spans), max_element_width);
             }
 
             if is_selected {

@@ -1,11 +1,17 @@
-use tui_tree_widget::{DefaultTreeItem, TreeState};
+use tui_tree_widget::{HasChildren, TreeState};
 
-pub struct StatefulTree<'a> {
+pub struct StatefulTree<T>
+where
+    T: HasChildren<T> + Clone,
+{
     pub state: TreeState,
-    pub items: Vec<DefaultTreeItem<'a>>,
+    pub items: Vec<T>,
 }
 
-impl<'a> StatefulTree<'a> {
+impl<T> StatefulTree<T>
+where
+    T: HasChildren<T> + Clone,
+{
     #[allow(dead_code)]
     pub fn new() -> Self {
         Self {
@@ -14,7 +20,7 @@ impl<'a> StatefulTree<'a> {
         }
     }
 
-    pub fn with_items(items: Vec<DefaultTreeItem<'a>>) -> Self {
+    pub fn with_items(items: Vec<T>) -> Self {
         Self {
             state: TreeState::default(),
             items,

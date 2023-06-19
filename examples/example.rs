@@ -22,7 +22,7 @@ struct Performance {
 }
 
 struct App<'a> {
-    tree: StatefulTree<'a>,
+    tree: StatefulTree<DefaultTreeItem<'a>>,
     performance: Performance,
 }
 

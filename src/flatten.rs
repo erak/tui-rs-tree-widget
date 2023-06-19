@@ -6,7 +6,7 @@ use crate::{HasChildren, Visible};
 pub fn flatten<'a, T: HasChildren<T> + Clone>(
     opened: &[TreeIdentifierVec],
     items: &'a [T],
-) -> Vec<Visible<T>> {
+) -> Vec<Visible<'a, T>> {
     internal(opened, items, &[])
 }
 
@@ -15,7 +15,7 @@ fn internal<'a, T: HasChildren<T> + Clone>(
     opened: &[TreeIdentifierVec],
     items: &'a [T],
     current: TreeIdentifier,
-) -> Vec<Visible<T>> {
+) -> Vec<Visible<'a, T>> {
     let mut result = Vec::new();
 
     for (index, item) in items.iter().enumerate() {
@@ -23,7 +23,8 @@ fn internal<'a, T: HasChildren<T> + Clone>(
         child_identifier.push(index);
 
         result.push(Visible {
-            item: item.clone(),
+            item,
+            graphemes: vec![],
             identifier: child_identifier.clone(),
         });
 
@@ -80,7 +81,7 @@ fn get_opened_nothing_opened_is_top_level() {
     let result = flatten(&[], &items);
     let result_text = result
         .iter()
-        .map(|o| get_naive_string_from_text(o.item.text()))
+        .map(|o| get_naive_string_from_text(&o.item.text()))
         .collect::<Vec<_>>();
     assert_eq!(result_text, ["a", "b", "h"]);
 }
@@ -94,7 +95,7 @@ fn get_opened_wrong_opened_is_only_top_level() {
     let result = flatten(&opened, &items);
     let result_text = result
         .iter()
-        .map(|o| get_naive_string_from_text(o.item.text()))
+        .map(|o| get_naive_string_from_text(&o.item.text()))
         .collect::<Vec<_>>();
     assert_eq!(result_text, ["a", "b", "h"]);
 }
@@ -108,7 +109,7 @@ fn get_opened_one_is_opened() {
     let result = flatten(&opened, &items);
     let result_text = result
         .iter()
-        .map(|o| get_naive_string_from_text(o.item.text()))
+        .map(|o| get_naive_string_from_text(&o.item.text()))
         .collect::<Vec<_>>();
     assert_eq!(result_text, ["a", "b", "c", "d", "g", "h"]);
 }
@@ -122,7 +123,7 @@ fn get_opened_all_opened() {
     let result = flatten(&opened, &items);
     let result_text = result
         .iter()
-        .map(|o| get_naive_string_from_text(o.item.text()))
+        .map(|o| get_naive_string_from_text(&o.item.text()))
         .collect::<Vec<_>>();
     assert_eq!(result_text, ["a", "b", "c", "d", "e", "f", "g", "h"]);
 }
