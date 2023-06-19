@@ -11,11 +11,13 @@ use unicode_width::UnicodeWidthStr;
 
 mod flatten;
 mod identifier;
+pub mod wrap;
 
-pub use crate::flatten::{flatten, Flattened};
+pub use crate::flatten::flatten;
 pub use crate::identifier::{
     get_without_leaf as get_identifier_without_leaf, TreeIdentifier, TreeIdentifierVec,
 };
+pub use crate::wrap::wrap;
 
 pub trait TreeItem<'a> {
     fn height(&self) -> usize;
@@ -25,10 +27,29 @@ pub trait TreeItem<'a> {
     fn has_children(&self) -> bool;
 
     fn text(&self) -> &Text<'a>;
+
+    fn wrap(self, area: Rect) -> Self;
 }
 
 pub trait HasChildren<T> {
     fn children(&self) -> &Vec<T>;
+}
+
+#[derive(Clone)]
+pub struct Visible<T: Clone> {
+    pub identifier: Vec<usize>,
+    pub item: T,
+}
+
+impl<T: Clone> Visible<T> {
+    #[must_use]
+    pub fn depth(&self) -> usize {
+        self.identifier.len() - 1
+    }
+
+    pub fn item(&self) -> &T {
+        &self.item
+    }
 }
 
 /// Keeps the state of what is currently selected and what was opened in a [`Tree`]
@@ -118,7 +139,7 @@ impl TreeState {
     }
 
     /// Select the last node.
-    pub fn select_last<T: HasChildren<T>>(&mut self, items: &[T]) {
+    pub fn select_last<T: HasChildren<T> + Clone>(&mut self, items: &[T]) {
         let visible = flatten(&self.get_all_opened(), items);
         let new_identifier = visible
             .last()
@@ -129,7 +150,7 @@ impl TreeState {
 
     /// Handles the up arrow key.
     /// Moves up in the current depth or to its parent.
-    pub fn key_up<T: HasChildren<T>>(&mut self, items: &[T]) {
+    pub fn key_up<T: HasChildren<T> + Clone>(&mut self, items: &[T]) {
         let visible = flatten(&self.get_all_opened(), items);
         let current_identifier = self.selected();
         let current_index = visible
@@ -147,7 +168,7 @@ impl TreeState {
 
     /// Handles the down arrow key.
     /// Moves down in the current depth or into a child node.
-    pub fn key_down<T: HasChildren<T>>(&mut self, items: &[T]) {
+    pub fn key_down<T: HasChildren<T> + Clone>(&mut self, items: &[T]) {
         let visible = flatten(&self.get_all_opened(), items);
         let current_identifier = self.selected();
         let current_index = visible
@@ -266,6 +287,11 @@ impl<'a> TreeItem<'a> for DefaultTreeItem<'a> {
     fn text(&self) -> &Text<'a> {
         &self.text
     }
+
+    fn wrap(mut self, _area: Rect) -> Self {
+        self.text = self.text.clone();
+        self
+    }
 }
 
 impl<'a> HasChildren<DefaultTreeItem<'a>> for DefaultTreeItem<'a> {
@@ -306,6 +332,8 @@ pub struct Tree<'a, T> {
     items: Vec<T>,
 
     block: Option<Block<'a>>,
+    /// True if item should be wrapped into it the available area.
+    wrap: bool,
     start_corner: Corner,
     /// Style used as a base style for the widget
     style: Style,
@@ -329,6 +357,7 @@ impl<'a, T> Tree<'a, T> {
         Self {
             items,
             block: None,
+            wrap: false,
             start_corner: Corner::TopLeft,
             style: Style::default(),
             highlight_style: Style::default(),
@@ -343,6 +372,12 @@ impl<'a, T> Tree<'a, T> {
     #[must_use]
     pub fn block(mut self, block: Block<'a>) -> Self {
         self.block = Some(block);
+        self
+    }
+
+    #[must_use]
+    pub const fn wrap(mut self, wrap: bool) -> Self {
+        self.wrap = wrap;
         self
     }
 
@@ -389,7 +424,10 @@ impl<'a, T> Tree<'a, T> {
     }
 }
 
-impl<'a, T: TreeItem<'a> + HasChildren<T>> StatefulWidget for Tree<'a, T> {
+impl<'a, T> StatefulWidget for Tree<'a, T>
+where
+    T: TreeItem<'a> + HasChildren<T> + Clone,
+{
     type State = TreeState;
 
     #[allow(clippy::too_many_lines)]
@@ -407,8 +445,11 @@ impl<'a, T: TreeItem<'a> + HasChildren<T>> StatefulWidget for Tree<'a, T> {
             return;
         }
 
-        let visible = flatten(&state.get_all_opened(), &self.items);
-        // let visible = compose(&visible, area.width);
+        let visible = if self.wrap {
+            wrap(&flatten(&state.get_all_opened(), &self.items), area)
+        } else {
+            flatten(&state.get_all_opened(), &self.items)
+        };
 
         if visible.is_empty() {
             return;
@@ -522,7 +563,10 @@ impl<'a, T: TreeItem<'a> + HasChildren<T>> StatefulWidget for Tree<'a, T> {
     }
 }
 
-impl<'a, T: TreeItem<'a> + HasChildren<T>> Widget for Tree<'a, T> {
+impl<'a, T> Widget for Tree<'a, T>
+where
+    T: TreeItem<'a> + HasChildren<T> + Clone,
+{
     fn render(self, area: Rect, buf: &mut Buffer) {
         let mut state = TreeState::default();
         StatefulWidget::render(self, area, buf, &mut state);

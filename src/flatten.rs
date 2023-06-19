@@ -1,42 +1,29 @@
 use crate::identifier::{TreeIdentifier, TreeIdentifierVec};
-use crate::{HasChildren};
-
-pub struct Flattened<'a, T> {
-    pub identifier: Vec<usize>,
-    pub item: &'a T,
-}
-
-impl<'a, T> Flattened<'a, T> {
-    #[must_use]
-    pub fn depth(&self) -> usize {
-        self.identifier.len() - 1
-    }
-
-    pub fn item(&self) -> &T {
-        self.item
-    }
-}
+use crate::{HasChildren, Visible};
 
 /// Get a flat list of all visible [`TreeItem`s](TreeItem)
 #[must_use]
-pub fn flatten<'a, T: HasChildren<T>>(opened: &[TreeIdentifierVec], items: &'a [T]) -> Vec<Flattened<'a, T>> {
+pub fn flatten<'a, T: HasChildren<T> + Clone>(
+    opened: &[TreeIdentifierVec],
+    items: &'a [T],
+) -> Vec<Visible<T>> {
     internal(opened, items, &[])
 }
 
 #[must_use]
-fn internal<'a, T: HasChildren<T>>(
+fn internal<'a, T: HasChildren<T> + Clone>(
     opened: &[TreeIdentifierVec],
     items: &'a [T],
     current: TreeIdentifier,
-) -> Vec<Flattened<'a, T>> {
+) -> Vec<Visible<T>> {
     let mut result = Vec::new();
 
     for (index, item) in items.iter().enumerate() {
         let mut child_identifier = current.to_vec();
         child_identifier.push(index);
 
-        result.push(Flattened {
-            item,
+        result.push(Visible {
+            item: item.clone(),
             identifier: child_identifier.clone(),
         });
 
@@ -71,7 +58,13 @@ fn get_example_tree_items() -> Vec<crate::DefaultTreeItem<'static>> {
             "b",
             vec![
                 DefaultTreeItem::new_leaf("c"),
-                DefaultTreeItem::new("d", vec![DefaultTreeItem::new_leaf("e"), DefaultTreeItem::new_leaf("f")]),
+                DefaultTreeItem::new(
+                    "d",
+                    vec![
+                        DefaultTreeItem::new_leaf("e"),
+                        DefaultTreeItem::new_leaf("f"),
+                    ],
+                ),
                 DefaultTreeItem::new_leaf("g"),
             ],
         ),
